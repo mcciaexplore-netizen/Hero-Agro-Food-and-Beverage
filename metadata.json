@@ -1,0 +1,7 @@
+{
+  "name": "Remix: Hero Agro Foods Market Survey",
+  "description": "A comprehensive market research tool for packaged drinking water and water ATM feasibility studies.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
