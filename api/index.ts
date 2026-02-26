@@ -11,37 +11,43 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const db = new Database("survey.db");
 const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_WEBAPP_URL;
 
-// Initialize database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS responses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    mobile TEXT,
-    area TEXT,
-    type TEXT,
-    other_type TEXT,
-    water_types TEXT,
-    other_water_type TEXT,
-    current_brand TEXT,
-    price_20l TEXT,
-    price_1l TEXT,
-    price_500ml TEXT,
-    monthly_20l TEXT,
-    daily_bottles TEXT,
-    problems TEXT,
-    switching_reasons TEXT,
-    cheaper_switch TEXT,
-    retailer_fastest_size TEXT,
-    retailer_margin TEXT,
-    retailer_credit TEXT,
-    retailer_try_hero_agro_foods TEXT,
-    comments TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Initialize database (Optional backup)
+let db: any;
+try {
+  const dbPath = process.env.VERCEL ? "/tmp/survey.db" : "survey.db";
+  db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      mobile TEXT,
+      area TEXT,
+      type TEXT,
+      other_type TEXT,
+      water_types TEXT,
+      other_water_type TEXT,
+      current_brand TEXT,
+      price_20l TEXT,
+      price_1l TEXT,
+      price_500ml TEXT,
+      monthly_20l TEXT,
+      daily_bottles TEXT,
+      problems TEXT,
+      switching_reasons TEXT,
+      cheaper_switch TEXT,
+      retailer_fastest_size TEXT,
+      retailer_margin TEXT,
+      retailer_credit TEXT,
+      retailer_try_hero_agro_foods TEXT,
+      comments TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+} catch (err) {
+  console.warn("Database initialization failed (Expected on some serverless environments):", err.message);
+}
 
 app.use(express.json());
 
@@ -61,27 +67,29 @@ app.post("/api/survey", async (req, res) => {
     console.log("Received survey data for:", data.name);
     
     // 1. Save to SQLite (Local Backup)
-    try {
-      const stmt = db.prepare(`
-        INSERT INTO responses (
-          name, mobile, area, type, other_type, water_types, other_water_type,
-          current_brand, price_20l, price_1l, price_500ml, monthly_20l, daily_bottles,
-          problems, switching_reasons, cheaper_switch, retailer_fastest_size, retailer_margin,
-          retailer_credit, retailer_try_hero_agro_foods, comments
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+    if (db) {
+      try {
+        const stmt = db.prepare(`
+          INSERT INTO responses (
+            name, mobile, area, type, other_type, water_types, other_water_type,
+            current_brand, price_20l, price_1l, price_500ml, monthly_20l, daily_bottles,
+            problems, switching_reasons, cheaper_switch, retailer_fastest_size, retailer_margin,
+            retailer_credit, retailer_try_hero_agro_foods, comments
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
 
-      stmt.run(
-        data.name || "", data.mobile || "", data.area || "", data.type || "Household", data.otherType || "",
-        JSON.stringify(data.waterTypes || []), data.otherWaterType || "",
-        data.currentBrand || "", data.price20l || "", data.price1l || "", data.price500ml || "",
-        data.monthly20l || "", data.dailyBottles || "", JSON.stringify(data.problems || []),
-        JSON.stringify(data.switchingReasons || []), data.cheaperSwitch || "",
-        data.retailerFastestSize || "", data.retailerMargin || "", data.retailerCredit || "",
-        data.retailerTryHeroAgroFoods || "", data.comments || ""
-      );
-    } catch (sqliteError) {
-      console.warn("SQLite save skipped:", sqliteError.message);
+        stmt.run(
+          data.name || "", data.mobile || "", data.area || "", data.type || "Household", data.otherType || "",
+          JSON.stringify(data.waterTypes || []), data.otherWaterType || "",
+          data.currentBrand || "", data.price20l || "", data.price1l || "", data.price500ml || "",
+          data.monthly20l || "", data.dailyBottles || "", JSON.stringify(data.problems || []),
+          JSON.stringify(data.switchingReasons || []), data.cheaperSwitch || "",
+          data.retailerFastestSize || "", data.retailerMargin || "", data.retailerCredit || "",
+          data.retailerTryHeroAgroFoods || "", data.comments || ""
+        );
+      } catch (sqliteError) {
+        console.warn("SQLite save skipped:", sqliteError.message);
+      }
     }
     
     // 2. Forward to Google Sheets
@@ -118,7 +126,7 @@ app.get("/api/responses", async (req, res) => {
       }
     }
 
-    if (rawData.length === 0) {
+    if (rawData.length === 0 && db) {
       rawData = db.prepare("SELECT * FROM responses ORDER BY created_at DESC").all();
     }
 
