@@ -45,47 +45,70 @@ async function startServer() {
   app.use(express.json());
 
   // API routes
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      googleSheetConfigured: !!GOOGLE_SHEET_URL,
+      nodeVersion: process.version
+    });
+  });
+
   app.post("/api/survey", async (req, res) => {
     try {
       const data = req.body;
+      console.log("Received survey data for:", data.name);
       
       // 1. Save to SQLite (Local Backup)
-      const stmt = db.prepare(`
-        INSERT INTO responses (
-          name, mobile, area, type, other_type, water_types, other_water_type,
-          current_brand, price_20l, price_1l, price_500ml, monthly_20l, daily_bottles,
-          problems, switching_reasons, cheaper_switch, retailer_fastest_size, retailer_margin,
-          retailer_credit, retailer_try_hero_agro_foods, comments
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+      try {
+        const stmt = db.prepare(`
+          INSERT INTO responses (
+            name, mobile, area, type, other_type, water_types, other_water_type,
+            current_brand, price_20l, price_1l, price_500ml, monthly_20l, daily_bottles,
+            problems, switching_reasons, cheaper_switch, retailer_fastest_size, retailer_margin,
+            retailer_credit, retailer_try_hero_agro_foods, comments
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
 
-      stmt.run(
-        data.name, data.mobile, data.area, data.type, data.otherType,
-        JSON.stringify(data.waterTypes), data.otherWaterType,
-        data.currentBrand, data.price20l, data.price1l, data.price500ml,
-        data.monthly20l, data.dailyBottles, JSON.stringify(data.problems),
-        JSON.stringify(data.switchingReasons), data.cheaperSwitch,
-        data.retailerFastestSize, data.retailerMargin, data.retailerCredit,
-        data.retailerTryHeroAgroFoods, data.comments
-      );
-
+        stmt.run(
+          data.name || "", data.mobile || "", data.area || "", data.type || "Household", data.otherType || "",
+          JSON.stringify(data.waterTypes || []), data.otherWaterType || "",
+          data.currentBrand || "", data.price20l || "", data.price1l || "", data.price500ml || "",
+          data.monthly20l || "", data.dailyBottles || "", JSON.stringify(data.problems || []),
+          JSON.stringify(data.switchingReasons || []), data.cheaperSwitch || "",
+          data.retailerFastestSize || "", data.retailerMargin || "", data.retailerCredit || "",
+          data.retailerTryHeroAgroFoods || "", data.comments || ""
+        );
+        console.log("Saved to local SQLite backup");
+      } catch (sqliteError) {
+        console.warn("SQLite save failed (expected on read-only filesystems like Vercel):", sqliteError);
+      }
+      
       // 2. Forward to Google Sheets
       if (GOOGLE_SHEET_URL) {
+        console.log("Forwarding to Google Sheets...");
         try {
-          await fetch(GOOGLE_SHEET_URL, {
+          const sheetResponse = await fetch(GOOGLE_SHEET_URL, {
             method: "POST",
             body: JSON.stringify(data),
             headers: { "Content-Type": "application/json" }
           });
+          
+          if (!sheetResponse.ok) {
+            throw new Error(`Google Sheets responded with status: ${sheetResponse.status}`);
+          }
+          
+          console.log("Successfully synced with Google Sheets");
         } catch (err) {
           console.error("Google Sheets sync failed:", err);
         }
+      } else {
+        console.warn("GOOGLE_SHEET_WEBAPP_URL not configured");
       }
 
       res.json({ success: true });
     } catch (error) {
-      console.error("Database error:", error);
-      res.status(500).json({ error: "Failed to save survey response" });
+      console.error("Survey submission error:", error);
+      res.status(500).json({ error: "Failed to process survey" });
     }
   });
 
